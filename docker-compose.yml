@@ -1,0 +1,76 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: demenzhilfe-postgres
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "5432:5432"
+
+  postgrest:
+    image: postgrest/postgrest:v12.0.2
+    container_name: demenzhilfe-postgrest
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PGRST_DB_URI: ${PGRST_DB_URI}
+      PGRST_DB_SCHEMAS: ${PGRST_DB_SCHEMAS}
+      PGRST_DB_ANON_ROLE: ${PGRST_DB_ANON_ROLE}
+      PGRST_JWT_SECRET: ${PGRST_JWT_SECRET}
+      PGRST_SERVER_PORT: 3000
+    volumes:
+      - ./config/postgrest.conf:/etc/postgrest.conf:ro
+    command: ["postgrest", "/etc/postgrest.conf"]
+    ports:
+      - "3000:3000"
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0.5
+    container_name: demenzhilfe-keycloak
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KC_DB: postgres
+      KC_DB_URL_HOST: postgres
+      KC_DB_URL_PORT: 5432
+      KC_DB_URL_DATABASE: ${POSTGRES_DB}
+      KC_DB_USERNAME: ${POSTGRES_USER}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY: edge
+      KC_HOSTNAME: localhost
+      KC_HOSTNAME_STRICT: "false"
+      KC_METRICS_ENABLED: "true"
+      KEYCLOAK_FRONTEND_URL: ${KEYCLOAK_FRONTEND_URL}
+    command: ["start-dev", "--import-realm"]
+    volumes:
+      - keycloak-data:/opt/keycloak/data
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+    ports:
+      - "8080:8080"
+
+volumes:
+  pgdata:
+  keycloak-data:
